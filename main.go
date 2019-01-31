@@ -1,130 +1,76 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
-	"os"
-
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
 )
 
-// Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config) *http.Client {
-	// The file token.json stores the user's access and refresh tokens, and is
-	// created automatically when the authorization flow completes for the first
-	// time.
-	tokFile := "token.json"
-	tok, err := tokenFromFile(tokFile)
-	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
-	}
-	return config.Client(context.Background(), tok)
-}
-
-// Request a token from the web, then returns the retrieved token.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
-
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code %v", err)
-	}
-
-	tok, err := config.Exchange(context.TODO(), authCode)
-	if err != nil {
-		log.Fatalf("Unable to retrieve token from web %v", err)
-	}
-	return tok
-}
-
-// Retrieves a token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
-}
-
-// Saves a token to a file path.
-func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %s\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatalf("Unable to cache oauth token: %v", err)
-	}
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
-}
+const VIDEODIR = "RubetekVideo"
+const USAGELIMIT = 95
+const DELETECOUNT = 10
 
 func main() {
-	b, err := ioutil.ReadFile("credentials.json")
+
+	gd, err := newGDrive("")
 	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
+		log.Fatalf("Unable initializate Google Drive configuration: %v", err)
 	}
 
-	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, drive.DriveMetadataReadonlyScope)
-	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
-	}
-	client := getClient(config)
-
-	srv, err := drive.New(client)
+	srv, err := gd.getService()
 	if err != nil {
 		log.Fatalf("Unable to retrieve Drive client: %v", err)
 	}
 
-	r, err := srv.Files.List().PageSize(10).
-		// Q("name='RubetekVideo'").
-		Q("parents='1jNkl8fQZZShKoCEnUOF1x58SNd4mh0re'").
-		OrderBy("createdTime").
-		Fields("nextPageToken, files(id, name, parents, createdTime)").Do()
-	if err != nil {
-		log.Fatalf("Unable to retrieve files: %v", err)
-	}
-	fmt.Println("Files:")
-	if len(r.Files) == 0 {
-		fmt.Println("No files found.")
-	} else {
-		for _, i := range r.Files {
-			fmt.Printf("%s (%s) - %s - %s \n", i.Name, i.Id, i.Parents, i.CreatedTime)
-		}
-	}
-
-	if err := srv.Files.EmptyTrash().Do(); err != nil {
-		log.Fatalf("Unable to empty trash: %v", err)
-	}
-
-	fmt.Println("dsfd")
-
-	if err := srv.Files.Delete("1MOW2LS6jvKbMFPyCbknynNv64XKQb7PN").Do(); err != nil {
-		log.Fatalf("Unable to delete file: %v", err)
-	}
-
-	// prepare request to Drive API
+	// Get information about current drive usage
 	about, err := srv.About.Get().Fields("storageQuota").Do()
 	if err != nil {
 		log.Fatalf("Unable to execute an about request: %v", err)
 	}
 
-	fmt.Println("about.StorageQuota.Limit", about.StorageQuota.Limit)
-	fmt.Println("about.StorageQuota.Usage", about.StorageQuota.Usage)
-	fmt.Println("about.StorageQuota.UsageInDrive", about.StorageQuota.UsageInDrive)
-	fmt.Println("about.StorageQuota.UsageInDriveTrash", about.StorageQuota.UsageInDriveTrash)
+	sq := about.StorageQuota
+	fmt.Println("about.Limit", sq.Limit)
+	fmt.Println("about.Usage", sq.Usage)
+	fmt.Println("about.UsageInDrive", sq.UsageInDrive)
+	fmt.Println("about.UsageInDriveTrash", sq.UsageInDriveTrash)
 
-	// RubetekVideo (1jNkl8fQZZShKoCEnUOF1x58SNd4mh0re) - drive#file - [0AHQlnpYz8lRDUk9PVA]
+	perOfUse := float64(sq.UsageInDrive) / float64(sq.Limit) * 100
 
+	fmt.Println("Current percentage of use: ", perOfUse)
+
+	if perOfUse < USAGELIMIT {
+		if sq.UsageInDriveTrash > 0 {
+			if err := srv.Files.EmptyTrash().Do(); err != nil {
+				log.Fatalf("Can not empty trash. %v", err)
+			}
+		} else {
+			r, err := srv.Files.List().
+				Q("name='" + VIDEODIR + "'").
+				Fields("files(id)").Do()
+			if err != nil {
+				log.Fatalf("Unable to retrieve a directory with video: %v", err)
+			}
+
+			if len(r.Files) != 1 {
+				fmt.Println("Can not get the unique directory with video. Please check" + VIDEODIR + ".")
+			} else {
+				videoDirID := r.Files[0].Id
+
+				// get old video files and delete them
+				r, err := srv.Files.List().PageSize(DELETECOUNT).
+					Q("parents='" + videoDirID + "'").
+					OrderBy("createdTime").
+					Fields("files(id, name, createdTime)").Do()
+				if err != nil {
+					log.Fatalf("Unable to retrieve video files: %v", err)
+				}
+
+				for _, i := range r.Files {
+					fmt.Printf("%s (%s) - %s \n", i.Name, i.Id, i.CreatedTime)
+					if err := srv.Files.Delete(i.Id).Do(); err != nil {
+						log.Fatalf("Can not delete file %s(%s). %v", i.Name, i.Id, err)
+					}
+				}
+			}
+		}
+	}
 }
