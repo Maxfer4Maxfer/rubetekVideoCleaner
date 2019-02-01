@@ -18,7 +18,11 @@ type gDrive struct {
 	client         *http.Client
 }
 
+// newGDrive create new instance of the gDrive structure.
+// credentialFile is an input parameter is a name of the file there credential parametere to Google Drive API are stored.
+// At the end you've got gDrive with an client for further interaction with Google Drive.
 func newGDrive(credentialFile string) (*gDrive, error) {
+	// Default value
 	if credentialFile == "" {
 		credentialFile = "credentials.json"
 	}
@@ -66,6 +70,18 @@ func (gd *gDrive) getClient(config *oauth2.Config) error {
 	return nil
 }
 
+// Retrieves a token from a local file.
+func (gd *gDrive) tokenFromFile(file string) (*oauth2.Token, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	tok := &oauth2.Token{}
+	err = json.NewDecoder(f).Decode(tok)
+	return tok, err
+}
+
 // Request a token from the web, then returns the retrieved token.
 func (gd *gDrive) getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
@@ -84,18 +100,6 @@ func (gd *gDrive) getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) 
 	return tok, nil
 }
 
-// Retrieves a token from a local file.
-func (gd *gDrive) tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
-}
-
 // Saves a token to a file path.
 func (gd *gDrive) saveToken(path string, token *oauth2.Token) error {
 	fmt.Printf("Saving credential file to: %s\n", path)
@@ -108,7 +112,7 @@ func (gd *gDrive) saveToken(path string, token *oauth2.Token) error {
 	return nil
 }
 
-// Create new connection to Google Drive
+// Create new connection to Google Drive for further interaction with Google Drive.
 func (gd *gDrive) getService() (*drive.Service, error) {
 	return drive.New(gd.client)
 }
