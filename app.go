@@ -47,8 +47,8 @@ func (a *app) initializeCLIArrgs() {
 	flag.BoolVar(&a.clean, "clean", false, "clean the directory with video files")
 	flag.BoolVar(&a.stat, "stat", false, "output Google Drive usage statistic")
 	flag.StringVar(&a.videoDir, "dir", "RubetekVideo", "name of a directory where video files stored")
-	flag.IntVar(&a.checkInterval, "interval", 1, "check interval (hours)")
-	flag.IntVar(&a.delCount, "count", 100, "how many files should be deleted")
+	flag.IntVar(&a.checkInterval, "interval", 1, "check interval (minutes)")
+	flag.IntVar(&a.delCount, "count", 720, "how many files should be deleted")
 	flag.IntVar(&a.freeLimit, "limit", 10, "minimum percentage of free space to keep")
 
 	flag.Parse()
@@ -147,8 +147,7 @@ func (a *app) start() {
 
 	// constantly check and clean a video directory
 	if a.cons {
-		ticker := time.NewTicker(time.Duration(a.checkInterval) * time.Hour)
-		// ticker := time.NewTicker(time.Duration(a.checkInterval) * time.Minute)
+		ticker := time.NewTicker(time.Duration(a.checkInterval) * time.Minute)
 		tickChan := ticker.C
 
 		for {
